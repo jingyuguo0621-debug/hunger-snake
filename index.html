@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Snake Game</title>
+  <!-- Link to our external stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Main container for the game -->
+  <div class="game-container">
+    <!-- Title shown above the game -->
+    <h1>Snake Game</h1>
+
+    <!-- Score display - current score and high score -->
+    <div class="score-board">
+      <span class="score-label">Score:</span>
+      <span id="score">0</span>
+      <span class="score-separator">|</span>
+      <span class="score-label">High Score:</span>
+      <span id="highScore">0</span>
+    </div>
+
+    <!-- Hard Mode only: Star bonus notification - centered overlay on game board -->
+    <!-- (starMessage is inside canvas-wrapper so it appears over the canvas) -->
+
+    <!-- Game board: sprint charge bar (left) + canvas + overlay container -->
+    <div class="game-board-row">
+      <div class="left-sidebar">
+        <div id="magnetStatus" class="magnet-status" title="Press M to attract red/yellow apples in 7x7. First at 30s, then every 60s.">Magnet: --</div>
+      <div id="sprintChargeBar" class="sprint-charge-bar" title="Sprint: 5s per charge. 1 charge = 2s sprint. 3 full = 3s invincible sprint.">
+        <div class="sprint-charge-cell" id="sprintCharge0"><span class="sprint-charge-fill" id="sprintChargeFill0"></span></div>
+        <div class="sprint-charge-cell" id="sprintCharge1"><span class="sprint-charge-fill" id="sprintChargeFill1"></span></div>
+        <div class="sprint-charge-cell" id="sprintCharge2"><span class="sprint-charge-fill" id="sprintChargeFill2"></span></div>
+      </div>
+      </div>
+    <div class="canvas-wrapper">
+      <canvas id="gameCanvas" width="400" height="400"></canvas>
+      <!-- Sprint / Magnet ready pills at top of canvas, medium transparency -->
+      <div id="canvasSkillReady" class="canvas-skill-ready">
+        <span id="canvasSprintReady" class="canvas-ready-pill hidden">Sprint Ready</span>
+        <span id="canvasMagnetReady" class="canvas-ready-pill hidden">Magnet Ready</span>
+      </div>
+      <div id="starMessage" class="star-message-overlay hidden"><span class="star-message-text"></span></div>
+      <div id="appleRainOverlay" class="apple-rain-overlay hidden">
+        <span class="apple-rain-title">APPLE RAIN!</span>
+        <span id="appleRainCountdown" class="apple-rain-countdown"></span>
+      </div>
+      <div id="bombZoneWarning" class="bomb-zone-warning-overlay hidden">Bomb Zone Incoming!</div>
+      <div id="comboMessage" class="combo-message-overlay hidden"><span id="comboMessageText"></span></div>
+    </div>
+    </div>
+
+    <!-- Legend: icons for current mode only, simplified labels + rewards -->
+    <div id="legend" class="legend"></div>
+
+    <!-- Instructions for the player -->
+    <p class="instructions">Arrow keys or WASD to move. Space = sprint (hold). M = Magnet (attract red/yellow in 7×7). Double-tap Space = pause. Don't hit yourself!</p>
+
+    <!-- Mode selection: Easy (default), Hard, or Carnival. Choose before starting. -->
+    <div class="mode-select-row">
+      <div class="mode-select">
+        <span class="mode-label">Mode:</span>
+        <button type="button" id="easyModeBtn" class="mode-btn mode-btn-selected">Easy</button>
+        <button type="button" id="hardModeBtn" class="mode-btn">Hard</button>
+        <button type="button" id="carnivalModeBtn" class="mode-btn">Carnival</button>
+      </div>
+      <button type="button" id="handbookBtn" class="handbook-btn">Handbook</button>
+    </div>
+
+    <!-- Start button - game begins when clicked -->
+    <button id="startButton">Start Game</button>
+
+    <!-- Game Over message - hidden until the snake dies -->
+    <div id="gameOverMessage" class="game-over hidden">
+      <h2>Game Over!</h2>
+      <p>Your score: <span id="finalScore">0</span></p>
+      <p>Click "Start Game" to play again.</p>
+    </div>
+
+    <!-- Paused overlay - shown when player double-taps Space -->
+    <div id="pausedMessage" class="paused-overlay hidden">
+      <span class="paused-text">PAUSED</span>
+    </div>
+
+    <!-- Handbook modal - rules for all modes, open from start screen -->
+    <div id="handbookOverlay" class="handbook-overlay hidden">
+      <div class="handbook-modal">
+        <div class="handbook-header">
+          <h2>Handbook</h2>
+          <button type="button" id="handbookClose" class="handbook-close" aria-label="Close">×</button>
+        </div>
+        <div class="handbook-body">
+          <!-- English version -->
+          <section class="handbook-section">
+            <h3>Controls (all modes)</h3>
+            <p><strong>Move</strong>: Arrow keys or WASD.</p>
+            <p><strong>Sprint</strong>: Hold Space — uses 1 charge, 2s speed boost.</p>
+            <p><strong>Invincible sprint</strong>: When 3 charges are full, press Space for 3s of speed + no bomb penalty.</p>
+            <p><strong>Magnet</strong>: Press M to attract red/yellow apples in a 7×7 area around the head (score only); first use at 30s, then every 60s.</p>
+            <p><strong>Pause</strong>: Double-tap Space.</p>
+            <p class="handbook-warn">Hitting your own body is Game Over in every mode.</p>
+          </section>
+          <section class="handbook-section">
+            <h3>Easy mode</h3>
+            <p>16×16 grid. Always 6 apples (no expiry).</p>
+            <p><strong>Red apple</strong> +1 pt, +1 length; <strong>Yellow</strong> +3 pt, +2 length; <strong>Blue</strong> slows, <strong>Green</strong> speeds for ~3s.</p>
+            <p><strong>Bomb</strong>: 1 (never expires). Touch = -10 pts, bomb respawns elsewhere. No stars or hearts.</p>
+          </section>
+          <section class="handbook-section">
+            <h3>Hard mode</h3>
+            <p>20×20 grid. 10 apples, ~3s expiry (blink in last 2s).</p>
+            <p><strong>Bombs</strong>: 3 (expire after 10s/20s/30s and respawn). Touch = -10 pts.</p>
+            <p><strong>Star</strong>: Spawns about every 15s (up to 2, last ~3s). +10 pts.</p>
+            <p><strong>White heart</strong>: Same spawn as stars. Eat = <strong>-5 length</strong> (min length 3).</p>
+          </section>
+          <section class="handbook-section">
+            <h3>Carnival mode</h3>
+            <p>30×30 grid. 30 apples (expire); <strong>bombs</strong> 6 (~8s expiry), touch = <strong>-5 pts</strong>; <strong>star</strong> +10 pts; <strong>white heart</strong> <strong>-10 length</strong>.</p>
+            <p><strong>Apple Rain</strong>: Triggers at 20 pts, then every +15 pts; 5s of falling apples/stars/hearts, ~1s invincible after. No length gain during rain.</p>
+            <p><strong>Bomb Zone</strong>: About every 30s, 2s warning then moving zones with bombs/star/heart/yellow apples; stepping on zone edges costs points.</p>
+            <p><strong>Pink square</strong>: About every 15s (lasts ~3s). Eat = <strong>3s invincible</strong>.</p>
+            <p><strong>Purple square</strong>: About every 20s, 2 squares (~3s). Eat = <strong>score/penalty ×2 for 3s</strong>.</p>
+            <p>Consecutive eats trigger <strong>Combo</strong> bonus points.</p>
+          </section>
+
+          <hr class="handbook-divider" />
+          <h3 class="handbook-lang-title">中文版</h3>
+
+          <section class="handbook-section handbook-lang-block">
+            <h3>通用操作</h3>
+            <p><strong>移动</strong>：方向键或 WASD</p>
+            <p><strong>冲刺</strong>：长按 Space，消耗 1 格能量，持续 2 秒加速</p>
+            <p><strong>无敌冲刺</strong>：3 格能量满时再按 Space，3 秒内加速且撞炸弹不扣分</p>
+            <p><strong>磁铁</strong>：按 M，吸引蛇头 7×7 内红/黄苹果（只加分）；首次 30 秒后获得，之后每 60 秒 1 次</p>
+            <p><strong>暂停</strong>：快速连按两次 Space</p>
+            <p class="handbook-warn">撞到自己的身体即 Game Over（所有模式相同）</p>
+          </section>
+          <section class="handbook-section handbook-lang-block">
+            <h3>Easy 模式</h3>
+            <p>16×16 格。场上固定 6 个苹果（无过期）。</p>
+            <p><strong>红苹果</strong> +1 分、+1 长；<strong>黄苹果</strong> +3 分、+2 长；<strong>蓝</strong>减速、<strong>绿</strong>加速约 3 秒。</p>
+            <p><strong>炸弹</strong> 1 个（不消失），碰到 -10 分并换位重生。无星星、白心。</p>
+          </section>
+          <section class="handbook-section handbook-lang-block">
+            <h3>Hard 模式</h3>
+            <p>20×20 格。场上 10 个苹果，约 3 秒过期（最后 2 秒闪烁）。</p>
+            <p><strong>炸弹</strong> 3 个（10s/20s/30s 后消失并重生），碰到 -10 分。</p>
+            <p><strong>星星</strong> 约每 15 秒出现（最多 2 颗，存在约 3 秒），+10 分。</p>
+            <p><strong>白心</strong> 与星星同批出现，吃到 <strong>-5 格</strong>长度（不低于 3 格）。</p>
+          </section>
+          <section class="handbook-section handbook-lang-block">
+            <h3>Carnival 狂欢模式</h3>
+            <p>30×30 格。苹果 30 个会过期；<strong>炸弹</strong> 6 个（约 8 秒消失），碰到 <strong>-5 分</strong>；<strong>星星</strong> +10 分；<strong>白心</strong> <strong>-10 格</strong>。</p>
+            <p><strong>苹果雨</strong>：分数达 20 触发，之后每 +15 分再触发；5 秒内大量苹果/星/心落下，结束后约 1 秒无敌；雨期间吃苹果不加长度。</p>
+            <p><strong>炸弹区</strong>：约每 30 秒、先 2 秒警告再出现移动区，内有炸弹/星/心/黄苹果；踩到区内外圈会扣分。</p>
+            <p><strong>粉色方块</strong>：约每 15 秒出现（存在约 3 秒），吃到得 <strong>3 秒无敌</strong>。</p>
+            <p><strong>紫色方块</strong>：约每 20 秒出现 2 个（存在约 3 秒），吃到后 <strong>3 秒内得分/扣分 ×2</strong>。</p>
+            <p>连续吃分会触发 <strong>Combo</strong> 额外加分。</p>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load our JavaScript file at the end so the HTML exists when the script runs -->
+  <script src="script.js"></script>
+</body>
+</html>
