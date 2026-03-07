@@ -11,7 +11,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
     },
-    title: 'Snake Game',
+    title: 'Hunger Snake',
     show: false,
   });
 
