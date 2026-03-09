@@ -8,6 +8,7 @@ var canvas = document.getElementById('gameCanvas');
 var ctx = canvas.getContext('2d');
 var scoreDisplay = document.getElementById('score');
 var highScoreDisplay = document.getElementById('highScore');
+var gameTimeDisplay = document.getElementById('gameTime');
 var startButton = document.getElementById('startButton');
 var gameOverMessage = document.getElementById('gameOverMessage');
 var finalScoreDisplay = document.getElementById('finalScore');
@@ -25,6 +26,26 @@ var starMessageFadeTimeout = null;
 var handbookBtn = document.getElementById('handbookBtn');
 var handbookClose = document.getElementById('handbookClose');
 var handbookOverlay = document.getElementById('handbookOverlay');
+
+var snakeSkin = 'default'; // 'default' | 'hearts' | 'starry' | ...
+var skinBtn = document.getElementById('skinBtn');
+var skinDropdown = document.getElementById('skinDropdown');
+
+// Starry sky skin: 图1 + 图2(左右反转) 切成小方块交替连接
+var starrySkyImg1 = new Image();
+starrySkyImg1.src = 'assets/starry-sky-1.png';
+var starrySkyImg2 = new Image();
+starrySkyImg2.src = 'assets/starry-sky-2.png';
+
+// Transparent-window skin: global starry background, snake shows background through outline-only segments
+var starryBgImg = new Image();
+starryBgImg.src = 'assets/starry-bg.png';
+
+var waterlilyBgImg = new Image();
+waterlilyBgImg.src = 'assets/waterlily-bg.png';
+
+var deepseaBgImg = new Image();
+deepseaBgImg.src = 'assets/deepsea-bg.png';
 
 // Game mode: 'easy' (default, unchanged), 'hard', or 'carnival' (Hard-like mechanics, larger board).
 var gameMode = 'easy';
@@ -151,11 +172,20 @@ var SPRINT_INVINCIBLE_MS = 3000;
 var lastSpacePressTime = 0;
 var DOUBLE_SPACE_MS = 400; // Double-press Space within this window toggles pause
 
-var magnetCount = 0;
-var lastMagnetGrantTime = 0;
-var MAGNET_FIRST_GRANT_MS = 30000;
-var MAGNET_GRANT_INTERVAL_MS = 60000;
-var MAGNET_MAX_STACK = 1;
+// Magnet: progress bar 0–100%. First 20s → small (5×5); at 60s → big (full board). Small CD 40s, big CD 75s.
+var lastMagnetUseTime = 0;
+var lastMagnetUseWasSmall = false;
+var MAGNET_SMALL_FIRST_MS = 20000;
+var MAGNET_SMALL_CD_MS = 40000;
+var MAGNET_BIG_AFTER_MS = 60000;
+var MAGNET_BIG_CD_MS = 75000;
+var magnetFlashPositions = [];
+var magnetFlashEndTime = 0;
+var MAGNET_FLASH_MS = 180;
+var bigMagnetSpawnTime = 0;
+var bigMagnetPendingSpawnCount = 0;
+var smallMagnetEndTime = 0;
+var MAGNET_SMALL_DURATION_MS = 3000;
 var gameStartTime = 0;
 
 // Hard mode: bomb expiry times (ms) - 10s, 20s, 30s. New bombs get these in rotation so they stay staggered.
@@ -211,14 +241,20 @@ function initGame() {
   sprintCharges = 0;
   sprintChargeProgress = 0;
   lastSprintChargeTime = Date.now();
-  magnetCount = 0;
-  lastMagnetGrantTime = 0;
+  lastMagnetUseTime = 0;
+  lastMagnetUseWasSmall = false;
+  magnetFlashPositions = [];
+  magnetFlashEndTime = 0;
+  bigMagnetSpawnTime = 0;
+  bigMagnetPendingSpawnCount = 0;
+  smallMagnetEndTime = 0;
   isPaused = false;
   lastSpacePressTime = 0;
   pausedMessage.classList.add('hidden');
   scoreDisplay.textContent = '0';
   highScoreDisplay.textContent = highScore;
   lastDisplayedScore = 0;
+  if (gameTimeDisplay) gameTimeDisplay.textContent = '0:00';
   gameOverMessage.classList.add('hidden');
 
   foodItems = [];
@@ -262,23 +298,523 @@ function initGame() {
   updateSprintUI(Date.now());
   updateMagnetUI(Date.now());
   updateSkillReadyNotice(Date.now());
+  updateTopRightCountdowns(Date.now());
 }
 
-// Draw each segment of the snake; head uses a different color so it's easy to see
+// Draw each segment of the snake; head darker than body (except Default keeps original green head)
 function drawSnake() {
   var padding = GRID_SIZE > 30 ? 2 : 1;
   var size = GRID_SIZE - padding * 2;
+  if (snakeSkin === 'starrybg') {
+    var img = starryBgImg;
+    if (img.complete && img.naturalWidth > 0) {
+      var iw = img.naturalWidth;
+      var ih = img.naturalHeight;
+      var scale = Math.max(CANVAS_SIZE / iw, CANVAS_SIZE / ih);
+      var srcW = CANVAS_SIZE / scale;
+      var srcH = CANVAS_SIZE / scale;
+      var srcX = (iw - srcW) / 2;
+      var srcY = (ih - srcH) / 2;
+      for (var i = 0; i < snake.length; i++) {
+        var dx = snake[i].x + padding;
+        var dy = snake[i].y + padding;
+        ctx.save();
+        ctx.rect(dx, dy, size, size);
+        ctx.clip();
+        ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.restore();
+      }
+    }
+    return;
+  }
+  if (snakeSkin === 'waterlily') {
+    var img = waterlilyBgImg;
+    if (img.complete && img.naturalWidth > 0) {
+      var iw = img.naturalWidth;
+      var ih = img.naturalHeight;
+      var scale = Math.max(CANVAS_SIZE / iw, CANVAS_SIZE / ih);
+      var srcW = CANVAS_SIZE / scale;
+      var srcH = CANVAS_SIZE / scale;
+      var srcX = (iw - srcW) / 2;
+      var srcY = (ih - srcH) / 2;
+      for (var i = 0; i < snake.length; i++) {
+        var dx = snake[i].x + padding;
+        var dy = snake[i].y + padding;
+        ctx.save();
+        ctx.rect(dx, dy, size, size);
+        ctx.clip();
+        ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.restore();
+      }
+    }
+    return;
+  }
+  if (snakeSkin === 'deepsea') {
+    var img = deepseaBgImg;
+    if (img.complete && img.naturalWidth > 0) {
+      var iw = img.naturalWidth;
+      var ih = img.naturalHeight;
+      var scale = Math.max(CANVAS_SIZE / iw, CANVAS_SIZE / ih);
+      var srcW = CANVAS_SIZE / scale;
+      var srcH = CANVAS_SIZE / scale;
+      var srcX = (iw - srcW) / 2;
+      var srcY = (ih - srcH) / 2;
+      for (var i = 0; i < snake.length; i++) {
+        var dx = snake[i].x + padding;
+        var dy = snake[i].y + padding;
+        ctx.save();
+        ctx.rect(dx, dy, size, size);
+        ctx.clip();
+        ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.restore();
+      }
+    }
+    return;
+  }
+  if (snakeSkin === 'hearts') {
+  for (var i = 0; i < snake.length; i++) {
+      var seg = snake[i];
+      var cx = seg.x + GRID_SIZE / 2;
+      var cy = seg.y + GRID_SIZE / 2;
+      var r = GRID_SIZE / 2 - 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r * 0.3);
+      ctx.bezierCurveTo(cx + r, cy - r * 1.2, cx + r, cy + r * 0.5, cx, cy + r * 0.9);
+      ctx.bezierCurveTo(cx - r, cy + r * 0.5, cx - r, cy - r * 1.2, cx, cy - r * 0.3);
+      ctx.closePath();
+    if (i === 0) {
+        ctx.fillStyle = '#E91E8C';
+        ctx.strokeStyle = '#AD1457';
+    } else {
+        ctx.fillStyle = '#FFC0CB';
+        ctx.strokeStyle = '#F48FB1';
+      }
+      ctx.lineWidth = 1.5;
+      ctx.fill();
+      ctx.stroke();
+    }
+    return;
+  }
+  if (snakeSkin === 'redhearts') {
+    for (var i = 0; i < snake.length; i++) {
+      var seg = snake[i];
+      var cx = seg.x + GRID_SIZE / 2;
+      var cy = seg.y + GRID_SIZE / 2;
+      var r = GRID_SIZE / 2 - 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r * 0.3);
+      ctx.bezierCurveTo(cx + r, cy - r * 1.2, cx + r, cy + r * 0.5, cx, cy + r * 0.9);
+      ctx.bezierCurveTo(cx - r, cy + r * 0.5, cx - r, cy - r * 1.2, cx, cy - r * 0.3);
+      ctx.closePath();
+      if (i === 0) {
+        ctx.fillStyle = '#C62828';
+        ctx.strokeStyle = '#A01515';
+      } else {
+        ctx.fillStyle = '#E87878';
+        ctx.strokeStyle = '#D85858';
+      }
+      ctx.lineWidth = 1.5;
+      ctx.fill();
+      ctx.stroke();
+    }
+    return;
+  }
+  if (snakeSkin === 'rainbow') {
+    var rainbowFill = ['#E0A0A0', '#E0B890', '#D8D890', '#98C898', '#90C8C8', '#98A0E0', '#C098E0'];
+    var rainbowStroke = ['#C87878', '#C89070', '#C0C070', '#78A878', '#70A8A8', '#7880C8', '#A878C8'];
+    var headFill = '#C87878';
+    var headStroke = '#A86060';
+    for (var i = 0; i < snake.length; i++) {
+      var idx = Math.floor(i / 3) % 7;
+      if (i === 0) {
+        ctx.fillStyle = headFill;
+        ctx.strokeStyle = headStroke;
+      } else {
+        ctx.fillStyle = rainbowFill[idx];
+        ctx.strokeStyle = rainbowStroke[idx];
+      }
+    ctx.lineWidth = 1;
+      ctx.fillRect(snake[i].x + padding, snake[i].y + padding, size, size);
+      ctx.strokeRect(snake[i].x + padding, snake[i].y + padding, size, size);
+    }
+    return;
+  }
+  if (snakeSkin === 'starry') {
+    var img1 = starrySkyImg1;
+    var img2 = starrySkyImg2;
+    var segCount = snake.length;
+    var useTwo = img1.complete && img1.naturalWidth > 0 && img2.complete && img2.naturalWidth > 0;
+    if (useTwo) {
+      var iw1 = img1.naturalWidth;
+      var ih1 = img1.naturalHeight;
+      var iw2 = img2.naturalWidth;
+      var ih2 = img2.naturalHeight;
+      var sliceW1 = Math.max(15, Math.floor(iw1 / 12));
+      var sliceW2 = Math.max(15, Math.floor(iw2 / 12));
+      // 1/4 overlap: step = 3/4 of slice width so next block overlaps previous by 1/4
+      var step1 = Math.max(8, Math.floor(sliceW1 * 3 / 4));
+      var step2 = Math.max(8, Math.floor(sliceW2 * 3 / 4));
+      var maxSx1 = Math.max(0, iw1 - sliceW1);
+      var maxSx2 = Math.max(0, iw2 - sliceW2);
+      var L1 = maxSx1 <= 0 ? 1 : Math.floor(maxSx1 / step1) + 1;
+      var L2 = maxSx2 <= 0 ? 1 : Math.floor(maxSx2 / step2) + 1;
+      var period = L1 + L2;
+      for (var i = 0; i < segCount; i++) {
+        var dx = snake[i].x + padding;
+        var dy = snake[i].y + padding;
+        var pos = i % period;
+        if (pos < L1) {
+          var sx1 = Math.min(pos * step1, maxSx1);
+          ctx.drawImage(img1, sx1, 0, sliceW1, ih1, dx, dy, size, size);
+        } else {
+          var p2 = pos - L1;
+          var sx2 = Math.max(0, maxSx2 - p2 * step2);
+          ctx.save();
+          ctx.translate(dx + size, dy);
+          ctx.scale(-1, 1);
+          ctx.translate(-dx, -dy);
+          ctx.drawImage(img2, sx2, 0, sliceW2, ih2, dx, dy, size, size);
+          ctx.restore();
+        }
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+      for (var j = 0; j < segCount; j++) {
+        ctx.strokeRect(snake[j].x + padding, snake[j].y + padding, size, size);
+      }
+    } else if (img1.complete && img1.naturalWidth > 0) {
+      var iw = img1.naturalWidth;
+      var ih = img1.naturalHeight;
+      var sliceW = Math.max(15, Math.floor(iw / 12));
+      var step = Math.max(8, Math.floor(sliceW * 3 / 4));
+      var maxSx = Math.max(0, iw - sliceW);
+      for (var i = 0; i < segCount; i++) {
+        var sx = (i * step) % (maxSx + 1);
+        if (sx > maxSx) sx = maxSx;
+        ctx.drawImage(img1, sx, 0, sliceW, ih, snake[i].x + padding, snake[i].y + padding, size, size);
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+      for (var j = 0; j < segCount; j++) {
+        ctx.strokeRect(snake[j].x + padding, snake[j].y + padding, size, size);
+      }
+    } else {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.strokeStyle = '#3d3d6b';
+      for (var k = 0; k < segCount; k++) {
+        ctx.fillRect(snake[k].x + padding, snake[k].y + padding, size, size);
+        ctx.strokeRect(snake[k].x + padding, snake[k].y + padding, size, size);
+      }
+    }
+    return;
+  }
+  if (snakeSkin === 'lightblue' || snakeSkin === 'purple') {
+    var headFill, headStroke, bodyFill, bodyStroke;
+    if (snakeSkin === 'lightblue') {
+      headFill = '#4A90B5';
+      headStroke = '#2E6B8A';
+      bodyFill = '#A8D0E6';
+      bodyStroke = '#7AB8D9';
+    } else {
+      headFill = '#6B5B7A';
+      headStroke = '#4A4055';
+      bodyFill = '#B8A9C4';
+      bodyStroke = '#8B7A99';
+    }
+    for (var i = 0; i < snake.length; i++) {
+      if (i === 0) {
+        ctx.fillStyle = headFill;
+        ctx.strokeStyle = headStroke;
+      } else {
+        ctx.fillStyle = bodyFill;
+        ctx.strokeStyle = bodyStroke;
+      }
+      ctx.lineWidth = 1;
+      ctx.fillRect(snake[i].x + padding, snake[i].y + padding, size, size);
+      ctx.strokeRect(snake[i].x + padding, snake[i].y + padding, size, size);
+    }
+    return;
+  }
   for (var i = 0; i < snake.length; i++) {
     if (i === 0) {
-      ctx.fillStyle = '#1B5E20';
-      ctx.strokeStyle = '#0D3D0D';
+      ctx.fillStyle = '#5C6B8A';
+      ctx.strokeStyle = '#3D4A5C';
     } else {
-      ctx.fillStyle = '#4CAF50';
-      ctx.strokeStyle = '#1B5E20';
+      ctx.fillStyle = '#9EACC4';
+      ctx.strokeStyle = '#6B7A94';
     }
     ctx.lineWidth = 1;
     ctx.fillRect(snake[i].x + padding, snake[i].y + padding, size, size);
     ctx.strokeRect(snake[i].x + padding, snake[i].y + padding, size, size);
+  }
+}
+
+// Draw a 7-segment preview snake on canvas for the given skin (when skin dropdown is open).
+// Canvas is cleared by draw() before calling this; preview is centered on the canvas.
+function drawSnakePreview(skin) {
+  var padding = GRID_SIZE > 30 ? 2 : 1;
+  var size = GRID_SIZE - padding * 2;
+  var segCount = 23;
+  var previewW = 7 * GRID_SIZE;
+  var previewH = 5 * GRID_SIZE;
+  var startX = (CANVAS_SIZE - previewW) / 2;
+  var startY = (CANVAS_SIZE - previewH) / 2;
+  var i, x, y, cx, cy, r;
+  function segPos(idx) {
+    if (idx <= 6) return { x: startX + idx * GRID_SIZE, y: startY };
+    if (idx === 7) return { x: startX + 6 * GRID_SIZE, y: startY + GRID_SIZE };
+    if (idx <= 14) return { x: startX + (14 - idx) * GRID_SIZE, y: startY + 2 * GRID_SIZE };
+    if (idx === 15) return { x: startX, y: startY + 3 * GRID_SIZE };
+    return { x: startX + (idx - 16) * GRID_SIZE, y: startY + 4 * GRID_SIZE };
+  }
+  if (skin === 'hearts' || skin === 'redhearts') {
+    for (i = 0; i < segCount; i++) {
+      var p = segPos(i);
+      x = p.x;
+      y = p.y;
+      cx = x + GRID_SIZE / 2;
+      cy = y + GRID_SIZE / 2;
+      r = GRID_SIZE / 2 - 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - r * 0.3);
+      ctx.bezierCurveTo(cx + r, cy - r * 1.2, cx + r, cy + r * 0.5, cx, cy + r * 0.9);
+      ctx.bezierCurveTo(cx - r, cy + r * 0.5, cx - r, cy - r * 1.2, cx, cy - r * 0.3);
+      ctx.closePath();
+      if (skin === 'hearts') {
+        if (i === 0) { ctx.fillStyle = '#E91E8C'; ctx.strokeStyle = '#AD1457'; }
+        else { ctx.fillStyle = '#FFC0CB'; ctx.strokeStyle = '#F48FB1'; }
+      } else {
+        if (i === 0) { ctx.fillStyle = '#C62828'; ctx.strokeStyle = '#A01515'; }
+        else { ctx.fillStyle = '#E87878'; ctx.strokeStyle = '#D85858'; }
+      }
+      ctx.lineWidth = 1.5;
+      ctx.fill();
+      ctx.stroke();
+    }
+    return;
+  }
+  if (skin === 'rainbow') {
+    var rainbowFill = ['#E0A0A0', '#E0B890', '#D8D890', '#98C898', '#90C8C8', '#98A0E0', '#C098E0'];
+    var rainbowStroke = ['#C87878', '#C89070', '#C0C070', '#78A878', '#70A8A8', '#7880C8', '#A878C8'];
+    var headFill = '#C87878';
+    var headStroke = '#A86060';
+    var tailRedFill = '#E0A0A0';
+    var tailRedStroke = '#C87878';
+    for (i = 0; i < segCount; i++) {
+      var p = segPos(i);
+      x = p.x;
+      y = p.y;
+      var idx = Math.floor(i / 3) % 7;
+      if (i === 0) {
+        ctx.fillStyle = headFill;
+        ctx.strokeStyle = headStroke;
+      } else if (i >= 21) {
+        ctx.fillStyle = tailRedFill;
+        ctx.strokeStyle = tailRedStroke;
+      } else {
+        ctx.fillStyle = rainbowFill[idx];
+        ctx.strokeStyle = rainbowStroke[idx];
+      }
+      ctx.lineWidth = 1;
+      ctx.fillRect(x + padding, y + padding, size, size);
+      ctx.strokeRect(x + padding, y + padding, size, size);
+    }
+    return;
+  }
+  if (skin === 'starry') {
+    var img1 = starrySkyImg1;
+    var img2 = starrySkyImg2;
+    var useTwo = img1.complete && img1.naturalWidth > 0 && img2.complete && img2.naturalWidth > 0;
+    var startXStarry = startX;
+    var startYStarry = startY;
+    if (useTwo) {
+      var iw1 = img1.naturalWidth;
+      var ih1 = img1.naturalHeight;
+      var iw2 = img2.naturalWidth;
+      var ih2 = img2.naturalHeight;
+      var sliceW1 = Math.max(15, Math.floor(iw1 / 12));
+      var sliceW2 = Math.max(15, Math.floor(iw2 / 12));
+      var step1 = Math.max(8, Math.floor(sliceW1 * 3 / 4));
+      var step2 = Math.max(8, Math.floor(sliceW2 * 3 / 4));
+      var maxSx1 = Math.max(0, iw1 - sliceW1);
+      var maxSx2 = Math.max(0, iw2 - sliceW2);
+      var L1 = maxSx1 <= 0 ? 1 : Math.floor(maxSx1 / step1) + 1;
+      var L2 = maxSx2 <= 0 ? 1 : Math.floor(maxSx2 / step2) + 1;
+      var period = L1 + L2;
+      for (i = 0; i < segCount; i++) {
+        if (i <= 6) {
+          x = startXStarry + i * GRID_SIZE;
+          y = startYStarry;
+        } else if (i === 7) {
+          x = startXStarry + 6 * GRID_SIZE;
+          y = startYStarry + GRID_SIZE;
+        } else if (i <= 14) {
+          x = startXStarry + (14 - i) * GRID_SIZE;
+          y = startYStarry + 2 * GRID_SIZE;
+        } else if (i === 15) {
+          x = startXStarry;
+          y = startYStarry + 3 * GRID_SIZE;
+        } else {
+          x = startXStarry + (i - 16) * GRID_SIZE;
+          y = startYStarry + 4 * GRID_SIZE;
+        }
+        var dx = x + padding;
+        var dy = y + padding;
+        var pos = i % period;
+        if (pos < L1) {
+          var sx1 = Math.min(pos * step1, maxSx1);
+          ctx.drawImage(img1, sx1, 0, sliceW1, ih1, dx, dy, size, size);
+        } else {
+          var p2 = pos - L1;
+          var sx2 = Math.max(0, maxSx2 - p2 * step2);
+          ctx.save();
+          ctx.translate(dx + size, dy);
+          ctx.scale(-1, 1);
+          ctx.translate(-dx, -dy);
+          ctx.drawImage(img2, sx2, 0, sliceW2, ih2, dx, dy, size, size);
+          ctx.restore();
+        }
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+      for (i = 0; i < segCount; i++) {
+        if (i <= 6) { x = startXStarry + i * GRID_SIZE; y = startYStarry; }
+        else if (i === 7) { x = startXStarry + 6 * GRID_SIZE; y = startYStarry + GRID_SIZE; }
+        else if (i <= 14) { x = startXStarry + (14 - i) * GRID_SIZE; y = startYStarry + 2 * GRID_SIZE; }
+        else if (i === 15) { x = startXStarry; y = startYStarry + 3 * GRID_SIZE; }
+        else { x = startXStarry + (i - 16) * GRID_SIZE; y = startYStarry + 4 * GRID_SIZE; }
+        ctx.strokeRect(x + padding, y + padding, size, size);
+      }
+    } else if (img1.complete && img1.naturalWidth > 0) {
+      var iw = img1.naturalWidth;
+      var ih = img1.naturalHeight;
+      var sliceW = Math.max(15, Math.floor(iw / 12));
+      var step = Math.max(8, Math.floor(sliceW * 3 / 4));
+      var maxSx = Math.max(0, iw - sliceW);
+      for (i = 0; i < segCount; i++) {
+        if (i <= 6) { x = startXStarry + i * GRID_SIZE; y = startYStarry; }
+        else if (i === 7) { x = startXStarry + 6 * GRID_SIZE; y = startYStarry + GRID_SIZE; }
+        else if (i <= 14) { x = startXStarry + (14 - i) * GRID_SIZE; y = startYStarry + 2 * GRID_SIZE; }
+        else if (i === 15) { x = startXStarry; y = startYStarry + 3 * GRID_SIZE; }
+        else { x = startXStarry + (i - 16) * GRID_SIZE; y = startYStarry + 4 * GRID_SIZE; }
+        var sx = (i * step) % (maxSx + 1);
+        if (sx > maxSx) sx = maxSx;
+        ctx.drawImage(img1, sx, 0, sliceW, ih, x + padding, y + padding, size, size);
+      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+      ctx.lineWidth = 1;
+      for (i = 0; i < segCount; i++) {
+        if (i <= 6) { x = startXStarry + i * GRID_SIZE; y = startYStarry; }
+        else if (i === 7) { x = startXStarry + 6 * GRID_SIZE; y = startYStarry + GRID_SIZE; }
+        else if (i <= 14) { x = startXStarry + (14 - i) * GRID_SIZE; y = startYStarry + 2 * GRID_SIZE; }
+        else if (i === 15) { x = startXStarry; y = startYStarry + 3 * GRID_SIZE; }
+        else { x = startXStarry + (i - 16) * GRID_SIZE; y = startYStarry + 4 * GRID_SIZE; }
+        ctx.strokeRect(x + padding, y + padding, size, size);
+      }
+    } else {
+      ctx.fillStyle = '#1a1a2e';
+      ctx.strokeStyle = '#3d3d6b';
+      for (i = 0; i < segCount; i++) {
+        if (i <= 6) { x = startXStarry + i * GRID_SIZE; y = startYStarry; }
+        else if (i === 7) { x = startXStarry + 6 * GRID_SIZE; y = startYStarry + GRID_SIZE; }
+        else if (i <= 14) { x = startXStarry + (14 - i) * GRID_SIZE; y = startYStarry + 2 * GRID_SIZE; }
+        else if (i === 15) { x = startXStarry; y = startYStarry + 3 * GRID_SIZE; }
+        else { x = startXStarry + (i - 16) * GRID_SIZE; y = startYStarry + 4 * GRID_SIZE; }
+        ctx.fillRect(x + padding, y + padding, size, size);
+        ctx.strokeRect(x + padding, y + padding, size, size);
+      }
+    }
+    return;
+  }
+  if (skin === 'starrybg') {
+    var img = starryBgImg;
+    if (img.complete && img.naturalWidth > 0) {
+      var iw = img.naturalWidth;
+      var ih = img.naturalHeight;
+      var scale = Math.max(CANVAS_SIZE / iw, CANVAS_SIZE / ih);
+      var srcW = CANVAS_SIZE / scale;
+      var srcH = CANVAS_SIZE / scale;
+      var srcX = (iw - srcW) / 2;
+      var srcY = (ih - srcH) / 2;
+      for (i = 0; i < segCount; i++) {
+        var p = segPos(i);
+        var dx = p.x + padding;
+        var dy = p.y + padding;
+        ctx.save();
+        ctx.rect(dx, dy, size, size);
+        ctx.clip();
+        ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.restore();
+      }
+    }
+    return;
+  }
+  if (skin === 'waterlily') {
+    var img = waterlilyBgImg;
+    if (img.complete && img.naturalWidth > 0) {
+      var iw = img.naturalWidth;
+      var ih = img.naturalHeight;
+      var scale = Math.max(CANVAS_SIZE / iw, CANVAS_SIZE / ih);
+      var srcW = CANVAS_SIZE / scale;
+      var srcH = CANVAS_SIZE / scale;
+      var srcX = (iw - srcW) / 2;
+      var srcY = (ih - srcH) / 2;
+      for (i = 0; i < segCount; i++) {
+        var p = segPos(i);
+        var dx = p.x + padding;
+        var dy = p.y + padding;
+        ctx.save();
+        ctx.rect(dx, dy, size, size);
+        ctx.clip();
+        ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.restore();
+      }
+    }
+    return;
+  }
+  if (skin === 'deepsea') {
+    var img = deepseaBgImg;
+    if (img.complete && img.naturalWidth > 0) {
+      var iw = img.naturalWidth;
+      var ih = img.naturalHeight;
+      var scale = Math.max(CANVAS_SIZE / iw, CANVAS_SIZE / ih);
+      var srcW = CANVAS_SIZE / scale;
+      var srcH = CANVAS_SIZE / scale;
+      var srcX = (iw - srcW) / 2;
+      var srcY = (ih - srcH) / 2;
+      for (i = 0; i < segCount; i++) {
+        var p = segPos(i);
+        var dx = p.x + padding;
+        var dy = p.y + padding;
+        ctx.save();
+        ctx.rect(dx, dy, size, size);
+        ctx.clip();
+        ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, CANVAS_SIZE, CANVAS_SIZE);
+        ctx.restore();
+      }
+    }
+    return;
+  }
+  var headFill, headStroke, bodyFill, bodyStroke;
+  if (skin === 'lightblue') {
+    headFill = '#4A90B5'; headStroke = '#2E6B8A';
+    bodyFill = '#A8D0E6'; bodyStroke = '#7AB8D9';
+  } else if (skin === 'purple') {
+    headFill = '#6B5B7A'; headStroke = '#4A4055';
+    bodyFill = '#B8A9C4'; bodyStroke = '#8B7A99';
+  } else {
+    headFill = '#5C6B8A'; headStroke = '#3D4A5C';
+    bodyFill = '#9EACC4'; bodyStroke = '#6B7A94';
+  }
+  for (i = 0; i < segCount; i++) {
+    var p = segPos(i);
+    x = p.x;
+    y = p.y;
+    ctx.fillStyle = i === 0 ? headFill : bodyFill;
+    ctx.strokeStyle = i === 0 ? headStroke : bodyStroke;
+    ctx.lineWidth = 1;
+    ctx.fillRect(x + padding, y + padding, size, size);
+    ctx.strokeRect(x + padding, y + padding, size, size);
   }
 }
 
@@ -406,9 +942,16 @@ function drawBlue(x, y) {
 function draw(now) {
   if (now === undefined) now = Date.now();
 
+  // When skin dropdown is open: clear canvas and show only centered preview.
+  if (skinDropdown && !skinDropdown.classList.contains('hidden')) {
+    ctx.fillStyle = '#e8e8e8';
+    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+    drawSnakePreview(snakeSkin);
+    return;
+  }
+
   ctx.fillStyle = '#e8e8e8';
   ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-
   ctx.strokeStyle = '#d0d0d0';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -435,6 +978,18 @@ function draw(now) {
     var item = foodItems[i];
     if (item.rainApple && rainBlinkHide) continue;
     drawFoodItem(item, now);
+  }
+  if (magnetFlashPositions.length > 0 && now < magnetFlashEndTime) {
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#ffeb3b';
+    ctx.lineWidth = 2;
+    var pad = GRID_SIZE <= 30 ? 3 : 4;
+    var size = GRID_SIZE - pad * 2;
+    for (i = 0; i < magnetFlashPositions.length; i++) {
+      var pos = magnetFlashPositions[i];
+      ctx.fillRect(pos.x + pad, pos.y + pad, size, size);
+      ctx.strokeRect(pos.x + pad, pos.y + pad, size, size);
+    }
   }
   if (gameMode === 'easy' && bomb) {
     drawBomb(bomb.x, bomb.y);
@@ -538,33 +1093,67 @@ function getRandomEmptyCell(skipCell) {
   return null;
 }
 
-// Magnet skill: collect red and yellow apples in 7x7 area around head. Bonus score only (no Apple Rain progress, no Combo).
-function activateMagnet() {
-  if (magnetCount < 1 || snake.length === 0) return;
-  magnetCount--;
-  var head = snake[0];
+function getRandomEmptyCellExcluding(excludeList) {
+  if (!excludeList || excludeList.length === 0) return getRandomEmptyCell(null);
   var cols = CANVAS_SIZE / GRID_SIZE;
+  var attempts = 0;
+  while (attempts < 500) {
+    var x = Math.floor(Math.random() * cols) * GRID_SIZE;
+    var y = Math.floor(Math.random() * cols) * GRID_SIZE;
+    var inExclude = false;
+    for (var e = 0; e < excludeList.length; e++) {
+      if (excludeList[e].x === x && excludeList[e].y === y) { inExclude = true; break; }
+    }
+    if (!inExclude && !isCellOccupied(x, y, null)) return { x: x, y: y };
+    attempts++;
+  }
+  return null;
+}
+
+function getMagnetProgress(now) {
+  if (lastMagnetUseTime === 0) {
+    var elapsed = now - gameStartTime;
+    if (elapsed < MAGNET_SMALL_FIRST_MS) return Math.min(50, (elapsed / MAGNET_SMALL_FIRST_MS) * 50);
+    if (elapsed < MAGNET_BIG_AFTER_MS) return 50 + ((elapsed - MAGNET_SMALL_FIRST_MS) / (MAGNET_BIG_AFTER_MS - MAGNET_SMALL_FIRST_MS)) * 50;
+    return 100;
+  }
+  var cd = now - lastMagnetUseTime;
+  if (lastMagnetUseWasSmall) return Math.min(50, (cd / MAGNET_SMALL_CD_MS) * 50);
+  return Math.min(100, (cd / MAGNET_BIG_CD_MS) * 100);
+}
+
+// Magnet skill: progress bar. At 50% = small (5×5), at 100% = big (full board).
+function activateMagnet() {
+  if (snake.length === 0) return;
+  var now = Date.now();
+  var progress = getMagnetProgress(now);
+  if (progress < 50) return;
+
+  var useBig = progress >= 100;
+  lastMagnetUseTime = now;
+  lastMagnetUseWasSmall = !useBig;
+
+  var cols = CANVAS_SIZE / GRID_SIZE;
+  var head = snake[0];
   var hcol = head.x / GRID_SIZE;
   var hrow = head.y / GRID_SIZE;
-  var i;
-  for (i = foodItems.length - 1; i >= 0; i--) {
-    var item = foodItems[i];
-    if (item.rainApple) continue;
-    if (item.type !== FOOD_RED && item.type !== FOOD_GOLDEN) continue;
-    var acol = item.x / GRID_SIZE;
-    var arow = item.y / GRID_SIZE;
-    var dx = (acol - hcol + cols) % cols;
-    if (dx > cols / 2) dx -= cols;
-    var dy = (arow - hrow + cols) % cols;
-    if (dy > cols / 2) dy -= cols;
-    if (Math.abs(dx) <= 3 && Math.abs(dy) <= 3) {
+
+  if (useBig) {
+    var spawnCount = 0;
+    for (var i = foodItems.length - 1; i >= 0; i--) {
+      var item = foodItems[i];
+      if (item.type !== FOOD_RED && item.type !== FOOD_GOLDEN) continue;
       var points = item.type === FOOD_GOLDEN ? 3 : 1;
       score += points;
-      var pos = { x: item.x, y: item.y };
       foodItems.splice(i, 1);
-      spawnOneFood(pos, gameMode === 'carnival' || gameMode === 'hard');
+      if (!item.rainApple) spawnCount++;
     }
+    bigMagnetPendingSpawnCount = spawnCount;
+    bigMagnetSpawnTime = now + 1000;
+  } else {
+    smallMagnetEndTime = now + MAGNET_SMALL_DURATION_MS;
   }
+
   if (score !== lastDisplayedScore) {
     scoreDisplay.textContent = score;
     lastDisplayedScore = score;
@@ -576,34 +1165,100 @@ function activateMagnet() {
 }
 
 function updateMagnetGrant(now) {
-  if (magnetCount >= MAGNET_MAX_STACK) return;
-  var interval = (lastMagnetGrantTime === 0) ? MAGNET_FIRST_GRANT_MS : MAGNET_GRANT_INTERVAL_MS;
-  var refTime = lastMagnetGrantTime === 0 ? gameStartTime : lastMagnetGrantTime;
-  if (now - refTime >= interval) {
-    magnetCount = MAGNET_MAX_STACK;
-    lastMagnetGrantTime = now;
+  if (magnetFlashEndTime > 0 && now >= magnetFlashEndTime) {
+    magnetFlashPositions = [];
+    magnetFlashEndTime = 0;
+  }
+  if (smallMagnetEndTime > 0 && now >= smallMagnetEndTime) {
+    smallMagnetEndTime = 0;
+  }
+  if (smallMagnetEndTime > 0 && now < smallMagnetEndTime && snake.length > 0) {
+    var head = snake[0];
+    var cols = CANVAS_SIZE / GRID_SIZE;
+    var hcol = head.x / GRID_SIZE;
+    var hrow = head.y / GRID_SIZE;
+    var radius = 2;
+    var excludeCells = [];
+    for (var dc = -radius; dc <= radius; dc++) {
+      for (var dr = -radius; dr <= radius; dr++) {
+        var c = ((hcol + dc) % cols + cols) % cols;
+        var r = ((hrow + dr) % cols + cols) % cols;
+        excludeCells.push({ x: c * GRID_SIZE, y: r * GRID_SIZE });
+      }
+    }
+    var collected = [];
+    for (var i = foodItems.length - 1; i >= 0; i--) {
+      var item = foodItems[i];
+      if (item.type !== FOOD_RED && item.type !== FOOD_GOLDEN) continue;
+      var acol = item.x / GRID_SIZE;
+      var arow = item.y / GRID_SIZE;
+      var dx = (acol - hcol + cols) % cols;
+      if (dx > cols / 2) dx -= cols;
+      var dy = (arow - hrow + cols) % cols;
+      if (dy > cols / 2) dy -= cols;
+      dx = Math.abs(dx);
+      dy = Math.abs(dy);
+      if (dx <= radius && dy <= radius) {
+        var pts = item.type === FOOD_GOLDEN ? 3 : 1;
+        score += pts;
+        collected.push({ x: item.x, y: item.y });
+        foodItems.splice(i, 1);
+        if (!item.rainApple) {
+          var cell = getRandomEmptyCellExcluding(excludeCells);
+          if (cell) {
+            foodItems.push({
+              x: cell.x,
+              y: cell.y,
+              type: randomFoodType(),
+              spawnTime: (gameMode === 'carnival' || gameMode === 'hard') ? Date.now() : 0,
+              expires: !!(gameMode === 'carnival' || gameMode === 'hard')
+            });
+          }
+        }
+      }
+    }
+    if (collected.length > 0) {
+      magnetFlashPositions = collected;
+      magnetFlashEndTime = now + MAGNET_FLASH_MS;
+      if (scoreDisplay) scoreDisplay.textContent = score;
+      lastDisplayedScore = score;
+      if (score > highScore) {
+        highScore = score;
+        if (highScoreDisplay) highScoreDisplay.textContent = highScore;
+      }
+    }
+  }
+  if (bigMagnetSpawnTime > 0 && now >= bigMagnetSpawnTime) {
+    for (var n = 0; n < bigMagnetPendingSpawnCount; n++) {
+      spawnOneFood(null, gameMode === 'carnival' || gameMode === 'hard');
+    }
+    bigMagnetSpawnTime = 0;
+    bigMagnetPendingSpawnCount = 0;
   }
 }
 
 function updateMagnetUI(now) {
   var el = document.getElementById('magnetStatus');
+  var fillEl = document.getElementById('magnetProgressFill');
   if (!el) return;
   if (!isGameRunning) {
-    el.textContent = 'Magnet: --';
+    el.textContent = 'Magnet';
     el.classList.remove('ready');
+    if (fillEl) fillEl.style.width = '0%';
     return;
   }
-  if (magnetCount >= 1) {
-    el.textContent = 'Magnet: Ready';
+  if (now === undefined) now = Date.now();
+  var progress = getMagnetProgress(now);
+  if (fillEl) fillEl.style.width = progress + '%';
+  if (progress >= 100) {
+    el.textContent = 'Big';
+    el.classList.add('ready');
+  } else if (progress >= 50) {
+    el.textContent = 'Small';
     el.classList.add('ready');
   } else {
+    el.textContent = Math.round(progress) + '%';
     el.classList.remove('ready');
-    if (now === undefined) now = Date.now();
-    var interval = (lastMagnetGrantTime === 0) ? MAGNET_FIRST_GRANT_MS : MAGNET_GRANT_INTERVAL_MS;
-    var refTime = lastMagnetGrantTime === 0 ? gameStartTime : lastMagnetGrantTime;
-    var remaining = Math.ceil((interval - (now - refTime)) / 1000);
-    if (remaining < 0) remaining = 0;
-    el.textContent = 'Magnet: ' + remaining + 's';
   }
 }
 
@@ -620,8 +1275,41 @@ function updateSkillReadyNotice(now) {
     else sprintPill.classList.add('hidden');
   }
   if (magnetPill) {
-    if (magnetCount >= 1) magnetPill.classList.remove('hidden');
+    if (getMagnetProgress(now) >= 50) magnetPill.classList.remove('hidden');
     else magnetPill.classList.add('hidden');
+  }
+}
+
+function updateTopRightCountdowns(now) {
+  var invEl = document.getElementById('invincibleCountdown');
+  var doubleEl = document.getElementById('doubleScoreCountdown');
+  if (!invEl || !doubleEl) return;
+  if (!isGameRunning) {
+    invEl.classList.add('hidden');
+    doubleEl.classList.add('hidden');
+    return;
+  }
+  var invRemain = 0;
+  if (sprintInvincibleEndTime > 0 && now < sprintInvincibleEndTime) {
+    invRemain = Math.max(invRemain, (sprintInvincibleEndTime - now) / 1000);
+  }
+  if (gameMode === 'carnival' && carnivalInvincibilityEndTime > 0 && now < carnivalInvincibilityEndTime) {
+    invRemain = Math.max(invRemain, (carnivalInvincibilityEndTime - now) / 1000);
+  }
+  if (invRemain > 0) {
+    invEl.textContent = 'Invincible: ' + invRemain.toFixed(1) + 's';
+    invEl.classList.remove('hidden');
+    invEl.classList.add('invincible');
+  } else {
+    invEl.classList.add('hidden');
+  }
+  if (gameMode === 'carnival' && carnivalDoubleScoreEndTime > 0 && now < carnivalDoubleScoreEndTime) {
+    var doubleRemain = (carnivalDoubleScoreEndTime - now) / 1000;
+    doubleEl.textContent = '2× Score: ' + doubleRemain.toFixed(1) + 's';
+    doubleEl.classList.remove('hidden');
+    doubleEl.classList.add('double-score');
+  } else {
+    doubleEl.classList.add('hidden');
   }
 }
 
@@ -1340,7 +2028,7 @@ function moveSnake() {
         slowEffectEndTime = Date.now() + SPEED_EFFECT_DURATION_MS;
       } else if (eaten.type === FOOD_GREEN) {
         fastEffectEndTime = Date.now() + SPEED_EFFECT_DURATION_MS;
-      } else {
+  } else {
         var baseRed = 1;
         if (gameMode === 'carnival') { scoreForRainTrigger += baseRed; score += doubleActive ? baseRed * 2 : baseRed; carnivalOnComboEat(carnivalTickNow, false); } else { score += baseRed; }
         if (!(gameMode === 'carnival' && carnivalNoLengthGainThisTick)) {
@@ -1593,6 +2281,7 @@ function gameOver() {
   isPaused = false;
   pausedMessage.classList.add('hidden');
   updateSkillReadyNotice();
+  updateTopRightCountdowns();
   if (gameTimeoutId !== null) {
     clearTimeout(gameTimeoutId);
     gameTimeoutId = null;
@@ -1606,6 +2295,19 @@ function gameOver() {
   } catch (e) {}
   finalScoreDisplay.textContent = score;
   gameOverMessage.classList.remove('hidden');
+}
+
+// Update the timer display (elapsed since game start). Call from game loop when running.
+function updateGameTimeDisplay(now) {
+  if (!gameTimeDisplay) return;
+  if (!isGameRunning || gameStartTime <= 0) {
+    gameTimeDisplay.textContent = '0:00';
+    return;
+  }
+  var elapsed = Math.floor((now - gameStartTime) / 1000);
+  var min = Math.floor(elapsed / 60);
+  var sec = elapsed % 60;
+  gameTimeDisplay.textContent = min + ':' + (sec < 10 ? '0' : '') + sec;
 }
 
 // Runs each tick: if paused only redraw; else move, expiration checks, collision, draw, schedule next tick.
@@ -1622,6 +2324,8 @@ function gameLoop() {
     updateSprintUI(now);
     updateMagnetUI(now);
     updateSkillReadyNotice(now);
+    updateTopRightCountdowns(now);
+    updateGameTimeDisplay(now);
     if (gameMode === 'carnival' && carnivalAppleRainActive) updateAppleRainOverlay(now);
     gameTimeoutId = setTimeout(gameLoop, getEffectiveSpeed(now));
     return;
@@ -1662,6 +2366,8 @@ function gameLoop() {
   updateSprintUI(now);
   updateMagnetUI(now);
   updateSkillReadyNotice(now);
+  updateTopRightCountdowns(now);
+  updateGameTimeDisplay(now);
   if (gameMode === 'carnival' && carnivalAppleRainActive) updateAppleRainOverlay(now);
   gameTimeoutId = setTimeout(gameLoop, getEffectiveSpeed(now));
 }
@@ -1716,7 +2422,7 @@ document.addEventListener('keydown', function(event) {
   }
   if (event.code === 'KeyM') {
     event.preventDefault();
-    if (isGameRunning && !isPaused && magnetCount >= 1) activateMagnet();
+    if (isGameRunning && !isPaused && getMagnetProgress(Date.now()) >= 50) activateMagnet();
     return;
   }
   if (event.code === 'Space') {
@@ -1775,32 +2481,65 @@ document.addEventListener('keyup', function(event) {
 // When Start Game button is clicked, start (or restart) the game
 startButton.addEventListener('click', startGame);
 
-// Mode selection: switch between Easy (default), Hard, and Carnival. Refresh board when not running.
+// Mode selection: switch between Easy (default), Hard, and Carnival. Allow switching anytime; if game is running, restart in new mode.
 easyModeBtn.addEventListener('click', function() {
-  if (isGameRunning) return;
+  if (gameMode === 'easy') return;
+  var wasRunning = isGameRunning;
+  if (gameTimeoutId != null) {
+    clearTimeout(gameTimeoutId);
+    gameTimeoutId = null;
+  }
+  isGameRunning = false;
   gameMode = 'easy';
   easyModeBtn.classList.add('mode-btn-selected');
   hardModeBtn.classList.remove('mode-btn-selected');
   carnivalModeBtn.classList.remove('mode-btn-selected');
+  if (gameOverMessage && !gameOverMessage.classList.contains('hidden')) gameOverMessage.classList.add('hidden');
   initGame();
+  if (wasRunning) {
+    isGameRunning = true;
+    gameTimeoutId = setTimeout(gameLoop, getEffectiveSpeed(Date.now()));
+  }
 });
 
 hardModeBtn.addEventListener('click', function() {
-  if (isGameRunning) return;
+  if (gameMode === 'hard') return;
+  var wasRunning = isGameRunning;
+  if (gameTimeoutId != null) {
+    clearTimeout(gameTimeoutId);
+    gameTimeoutId = null;
+  }
+  isGameRunning = false;
   gameMode = 'hard';
   hardModeBtn.classList.add('mode-btn-selected');
   easyModeBtn.classList.remove('mode-btn-selected');
   carnivalModeBtn.classList.remove('mode-btn-selected');
+  if (gameOverMessage && !gameOverMessage.classList.contains('hidden')) gameOverMessage.classList.add('hidden');
   initGame();
+  if (wasRunning) {
+    isGameRunning = true;
+    gameTimeoutId = setTimeout(gameLoop, getEffectiveSpeed(Date.now()));
+  }
 });
 
 carnivalModeBtn.addEventListener('click', function() {
-  if (isGameRunning) return;
+  if (gameMode === 'carnival') return;
+  var wasRunning = isGameRunning;
+  if (gameTimeoutId != null) {
+    clearTimeout(gameTimeoutId);
+    gameTimeoutId = null;
+  }
+  isGameRunning = false;
   gameMode = 'carnival';
   carnivalModeBtn.classList.add('mode-btn-selected');
   easyModeBtn.classList.remove('mode-btn-selected');
   hardModeBtn.classList.remove('mode-btn-selected');
+  if (gameOverMessage && !gameOverMessage.classList.contains('hidden')) gameOverMessage.classList.add('hidden');
   initGame();
+  if (wasRunning) {
+    isGameRunning = true;
+    gameTimeoutId = setTimeout(gameLoop, getEffectiveSpeed(Date.now()));
+  }
 });
 
 function openHandbook() {
@@ -1816,6 +2555,76 @@ if (handbookOverlay) {
   handbookOverlay.addEventListener('click', function(e) {
     if (e.target === handbookOverlay) closeHandbook();
   });
+}
+
+function setSnakeSkin(skin) {
+  if (skin === snakeSkin) return; // 不切换则保持当前皮肤，怎么点都是当前款式
+  snakeSkin = skin;
+  var opts = skinDropdown ? skinDropdown.querySelectorAll('.skin-option') : [];
+  for (var o = 0; o < opts.length; o++) {
+    opts[o].classList.toggle('skin-option-selected', opts[o].getAttribute('data-skin') === skin);
+  }
+  draw(Date.now());
+}
+
+function openSkinDropdown() {
+  if (skinDropdown) {
+    skinDropdown.classList.remove('hidden');
+    showSkinLevel('skinLevelMain');
+    document.addEventListener('click', skinDropdownClickOut);
+    draw(Date.now());
+  }
+}
+
+function showSkinLevel(levelId) {
+  var main = document.getElementById('skinLevelMain');
+  var regular = document.getElementById('skinLevelRegular');
+  var limited = document.getElementById('skinLevelLimited');
+  if (main) main.classList.toggle('hidden', levelId !== 'skinLevelMain');
+  if (regular) regular.classList.toggle('hidden', levelId !== 'skinLevelRegular');
+  if (limited) limited.classList.toggle('hidden', levelId !== 'skinLevelLimited');
+}
+
+function closeSkinDropdown() {
+  if (skinDropdown) skinDropdown.classList.add('hidden');
+  document.removeEventListener('click', skinDropdownClickOut);
+}
+
+function skinDropdownClickOut(e) {
+  if (skinDropdown && skinBtn && !skinDropdown.contains(e.target) && e.target !== skinBtn) {
+    closeSkinDropdown();
+  }
+}
+
+if (skinBtn) skinBtn.addEventListener('click', function(e) {
+  e.stopPropagation();
+  if (skinDropdown && skinDropdown.classList.contains('hidden')) openSkinDropdown();
+  else closeSkinDropdown();
+});
+if (skinDropdown) {
+  var skinOpts = skinDropdown.querySelectorAll('.skin-option');
+  for (var so = 0; so < skinOpts.length; so++) {
+    (function(opt) {
+      opt.addEventListener('click', function() { setSnakeSkin(opt.getAttribute('data-skin')); });
+    })(skinOpts[so]);
+  }
+  var sel = skinDropdown.querySelector('.skin-option[data-skin="' + snakeSkin + '"]');
+  if (sel) sel.classList.add('skin-option-selected');
+
+  var categories = skinDropdown.querySelectorAll('.skin-category');
+  for (var c = 0; c < categories.length; c++) {
+    (function(btn) {
+      var cat = btn.getAttribute('data-category');
+      btn.addEventListener('click', function() {
+        if (cat === 'regular') showSkinLevel('skinLevelRegular');
+        else if (cat === 'limited') showSkinLevel('skinLevelLimited');
+      });
+    })(categories[c]);
+  }
+  var backBtns = skinDropdown.querySelectorAll('.skin-back');
+  for (var b = 0; b < backBtns.length; b++) {
+    backBtns[b].addEventListener('click', function() { showSkinLevel('skinLevelMain'); });
+  }
 }
 
 // Load high score from localStorage on page load

@@ -64,15 +64,35 @@ h1 {
   gap: 8px;
 }
 
+.magnet-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.magnet-bar {
+  width: 100%;
+  height: 12px;
+  background: #e0e0e0;
+  border: 1px solid #999;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.magnet-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #4CAF50 0%, #8BC34A 100%);
+  border-radius: 3px;
+  transition: width 0.15s ease-out;
+}
+
 .magnet-status {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #555;
-  padding: 4px 8px;
-  background: #f5f5f5;
-  border: 1px solid #bbb;
-  border-radius: 4px;
-  min-width: 80px;
   text-align: center;
 }
 
@@ -126,6 +146,46 @@ h1 {
 .canvas-wrapper {
   position: relative;
   display: inline-block;
+}
+
+/* Top-right: invincible and 2× score countdowns */
+.top-right-countdowns {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  text-align: right;
+  pointer-events: none;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.countdown-line {
+  padding: 4px 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #1a1a1a;
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 4px;
+  opacity: 0.9;
+}
+
+.countdown-line.hidden {
+  display: none;
+}
+
+.top-right-countdowns .countdown-line.invincible {
+  color: #0d47a1;
+  background: rgba(227, 242, 253, 0.85);
+  border-color: rgba(25, 118, 210, 0.4);
+}
+
+.top-right-countdowns .countdown-line.double-score {
+  color: #4a148c;
+  background: rgba(243, 229, 245, 0.85);
+  border-color: rgba(123, 31, 162, 0.4);
 }
 
 /* Sprint / Magnet ready pills at top of canvas - medium transparency */
@@ -347,6 +407,159 @@ h1 {
   border-color: #1565C0;
 }
 
+.skin-btn-wrap {
+  position: relative;
+}
+
+.skin-btn-main {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+  border: 2px solid #9C27B0;
+  border-radius: 4px;
+  background-color: #F3E5F5;
+  color: #6A1B9A;
+  cursor: pointer;
+}
+
+.skin-btn-main:hover {
+  background-color: #E1BEE7;
+  border-color: #7B1FA2;
+}
+
+.skin-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  min-width: 120px;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  z-index: 50;
+  overflow: hidden;
+}
+
+.skin-dropdown.hidden {
+  display: none;
+}
+
+.skin-level {
+  display: block;
+}
+.skin-level.hidden {
+  display: none;
+}
+
+.skin-category {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 0.95rem;
+  border: none;
+  background: #fff;
+  color: #333;
+  text-align: left;
+  cursor: pointer;
+  font-weight: 500;
+}
+.skin-category:hover {
+  background: #f0f0f0;
+}
+
+.skin-back {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 0.85rem;
+  border: none;
+  background: #f5f5f5;
+  color: #666;
+  text-align: left;
+  cursor: pointer;
+  border-bottom: 1px solid #eee;
+}
+.skin-back:hover {
+  background: #eee;
+}
+
+.skin-option {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  border: none;
+  background: #fff;
+  color: #333;
+  text-align: left;
+  cursor: pointer;
+}
+
+.skin-option:hover {
+  background: #f5f5f5;
+}
+
+.skin-group-label {
+  padding: 6px 12px 2px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 2px;
+}
+
+.skin-option[data-skin="default"].skin-option-selected {
+  background: #E8F5E9;
+  color: #1B5E20;
+}
+
+.skin-option[data-skin="hearts"].skin-option-selected {
+  background: #F8BBD9;
+  color: #880E4F;
+}
+
+.skin-option[data-skin="lightblue"].skin-option-selected {
+  background: #B3E5FC;
+  color: #01579B;
+}
+
+.skin-option[data-skin="purple"].skin-option-selected {
+  background: #E1BEE7;
+  color: #4A148C;
+}
+
+.skin-option[data-skin="redhearts"].skin-option-selected {
+  background: #FFCDD2;
+  color: #B71C1C;
+}
+
+.skin-option[data-skin="rainbow"].skin-option-selected {
+  background: linear-gradient(90deg, #E8D4D4, #E8E0D4, #E0E8D4, #D4E8DC, #D4E0E8, #D8D4E8, #E4D4E8);
+  color: #5C4A6B;
+}
+
+.skin-option[data-skin="starry"].skin-option-selected {
+  background: linear-gradient(90deg, #1a1a2e, #16213e, #0f3460);
+  color: #e8e8e8;
+}
+
+.skin-option[data-skin="starrybg"].skin-option-selected {
+  background: linear-gradient(90deg, #2d2d5a, #4a4a8a, #6b6bb3);
+  color: #e8e8e8;
+}
+
+.skin-option[data-skin="waterlily"].skin-option-selected {
+  background: linear-gradient(90deg, #2d5a3d, #4a8a5e, #6bb38a);
+  color: #e8f5e9;
+}
+
+.skin-option[data-skin="deepsea"].skin-option-selected {
+  background: linear-gradient(90deg, #0d3d56, #1a5f7a, #2d8ba8);
+  color: #e0f7fa;
+}
+
 /* Mode selection: Easy (default) or Hard */
 .mode-select {
   display: flex;
@@ -404,19 +617,20 @@ h1 {
 }
 
 .game-over {
-  /* Cover the whole game area so the message is clearly visible */
+  /* Cover only the game area (title, score, canvas) so mode row and Start button stay clickable */
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
+  height: 65%;
+  min-height: 320px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   background-color: rgba(0, 0, 0, 0.6);
   padding: 30px;
-  border-radius: 8px;
+  border-radius: 8px 8px 0 0;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   z-index: 10;
 }

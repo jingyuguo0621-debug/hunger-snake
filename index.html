@@ -13,13 +13,16 @@
     <!-- Title shown above the game -->
     <h1>Hunger Snake</h1>
 
-    <!-- Score display - current score and high score -->
+    <!-- Score display - current score, high score, and timer -->
     <div class="score-board">
       <span class="score-label">Score:</span>
       <span id="score">0</span>
       <span class="score-separator">|</span>
       <span class="score-label">High Score:</span>
       <span id="highScore">0</span>
+      <span class="score-separator">|</span>
+      <span class="score-label">Time:</span>
+      <span id="gameTime">0:00</span>
     </div>
 
     <!-- Hard Mode only: Star bonus notification - centered overlay on game board -->
@@ -28,7 +31,12 @@
     <!-- Game board: sprint charge bar (left) + canvas + overlay container -->
     <div class="game-board-row">
       <div class="left-sidebar">
-        <div id="magnetStatus" class="magnet-status" title="Press M to attract red/yellow apples in 7x7. First at 30s, then every 60s.">Magnet: --</div>
+      <div class="magnet-wrap">
+        <div class="magnet-bar" title="Half = small (5×5). Full = big (full board). Small CD 40s, Big CD 75s.">
+          <div id="magnetProgressFill" class="magnet-progress-fill"></div>
+        </div>
+        <span id="magnetStatus" class="magnet-status">Magnet</span>
+      </div>
       <div id="sprintChargeBar" class="sprint-charge-bar" title="Sprint: 5s per charge. 1 charge = 2s sprint. 3 full = 3s invincible sprint.">
         <div class="sprint-charge-cell" id="sprintCharge0"><span class="sprint-charge-fill" id="sprintChargeFill0"></span></div>
         <div class="sprint-charge-cell" id="sprintCharge1"><span class="sprint-charge-fill" id="sprintChargeFill1"></span></div>
@@ -37,6 +45,11 @@
       </div>
     <div class="canvas-wrapper">
       <canvas id="gameCanvas" width="400" height="400"></canvas>
+      <!-- Top-right: invincible and 2× score countdowns -->
+      <div id="topRightCountdowns" class="top-right-countdowns">
+        <div id="invincibleCountdown" class="countdown-line hidden"></div>
+        <div id="doubleScoreCountdown" class="countdown-line hidden"></div>
+      </div>
       <!-- Sprint / Magnet ready pills at top of canvas, medium transparency -->
       <div id="canvasSkillReady" class="canvas-skill-ready">
         <span id="canvasSprintReady" class="canvas-ready-pill hidden">Sprint Ready</span>
@@ -56,7 +69,7 @@
     <div id="legend" class="legend"></div>
 
     <!-- Instructions for the player -->
-    <p class="instructions">Arrow keys or WASD to move. Space = sprint (hold). M = Magnet (attract red/yellow in 7×7). Double-tap Space = pause. Don't hit yourself!</p>
+    <p class="instructions">Arrow keys or WASD to move. Space = sprint (hold). M = Magnet (collect all red/yellow on board). Double-tap Space = pause. Don't hit yourself!</p>
 
     <!-- Mode selection: Easy (default), Hard, or Carnival. Choose before starting. -->
     <div class="mode-select-row">
@@ -67,6 +80,31 @@
         <button type="button" id="carnivalModeBtn" class="mode-btn">Carnival</button>
       </div>
       <button type="button" id="handbookBtn" class="handbook-btn">Handbook</button>
+      <div class="skin-btn-wrap">
+        <button type="button" id="skinBtn" class="skin-btn-main" title="Choose snake skin">Skin</button>
+        <div id="skinDropdown" class="skin-dropdown hidden">
+          <div id="skinLevelMain" class="skin-level skin-level-main">
+            <button type="button" class="skin-category" data-category="regular">Regular</button>
+            <button type="button" class="skin-category" data-category="limited">Limited</button>
+          </div>
+          <div id="skinLevelRegular" class="skin-level skin-level-sub hidden">
+            <button type="button" class="skin-back">← Back</button>
+            <button type="button" class="skin-option" data-skin="default">Default</button>
+            <button type="button" class="skin-option" data-skin="lightblue">Light blue</button>
+            <button type="button" class="skin-option" data-skin="purple">Purple</button>
+            <button type="button" class="skin-option" data-skin="hearts">Pink heart</button>
+            <button type="button" class="skin-option" data-skin="redhearts">Red hearts</button>
+          </div>
+          <div id="skinLevelLimited" class="skin-level skin-level-sub hidden">
+            <button type="button" class="skin-back">← Back</button>
+            <button type="button" class="skin-option" data-skin="rainbow">Rainbow</button>
+            <button type="button" class="skin-option" data-skin="starry">Starry</button>
+            <button type="button" class="skin-option" data-skin="starrybg">Starry window</button>
+            <button type="button" class="skin-option" data-skin="waterlily">Water lilies</button>
+            <button type="button" class="skin-option" data-skin="deepsea">Deep sea</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Start button - game begins when clicked -->
@@ -98,7 +136,7 @@
             <p><strong>Move</strong>: Arrow keys or WASD.</p>
             <p><strong>Sprint</strong>: Hold Space — uses 1 charge, 2s speed boost.</p>
             <p><strong>Invincible sprint</strong>: When 3 charges are full, press Space for 3s of speed + no bomb penalty.</p>
-            <p><strong>Magnet</strong>: Press M to attract red/yellow apples in a 7×7 area around the head (score only); first use at 30s, then every 60s.</p>
+            <p><strong>Magnet</strong>: Press M to collect all red/yellow apples on the board (score only); first use at 30s, then every 60s.</p>
             <p><strong>Pause</strong>: Double-tap Space.</p>
             <p class="handbook-warn">Hitting your own body is Game Over in every mode.</p>
           </section>
@@ -133,7 +171,7 @@
             <p><strong>移动</strong>：方向键或 WASD</p>
             <p><strong>冲刺</strong>：长按 Space，消耗 1 格能量，持续 2 秒加速</p>
             <p><strong>无敌冲刺</strong>：3 格能量满时再按 Space，3 秒内加速且撞炸弹不扣分</p>
-            <p><strong>磁铁</strong>：按 M，吸引蛇头 7×7 内红/黄苹果（只加分）；首次 30 秒后获得，之后每 60 秒 1 次</p>
+            <p><strong>磁铁</strong>：按 M，吸附场上全部红/黄苹果（只加分）；首次 30 秒后获得，之后每 60 秒 1 次</p>
             <p><strong>暂停</strong>：快速连按两次 Space</p>
             <p class="handbook-warn">撞到自己的身体即 Game Over（所有模式相同）</p>
           </section>
